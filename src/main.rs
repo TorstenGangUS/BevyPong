@@ -1,7 +1,9 @@
-use bevy::{prelude::*, window::WindowResolution};
+mod physics;
 
 
+use bevy::{math::VectorSpace, prelude::*, window::WindowResolution};
 
+use crate::physics::{Dynamic, components::{collider::Collider, velocity::Velocity}};
 
 //TODO how to organize this...
 #[derive(Component)]
@@ -32,12 +34,13 @@ fn main() {
             }),
             ..default()
         }))
-
+        .add_plugins((
+            physics::PhysicsPlugin,
+        ))
         .insert_resource(ClearColor(Color::srgb(0.0, 0.0, 0.0)))
         .add_systems(Startup, setup)
         .add_systems(Update, (
             move_paddle,
-            move_ball,
         ))
         .add_systems(PostUpdate, (
             bounce_off_screen,
@@ -62,7 +65,10 @@ fn create_paddle(commands: &mut Commands, speed: f32, side:Side) {
             Color::WHITE,
             Vec2::new(10.0, 100.0)
         ),
-        Transform::from_translation(start_position)
+        Transform::from_translation(start_position),
+        Velocity::new(Vec2::ZERO),
+        Collider::new(Vec2::new(10.0, 100.0)),
+        Dynamic,
     ));
 }
 
@@ -77,11 +83,14 @@ fn setup(mut commands: Commands) {
         Ball{
             velocity: Vec3::new(300.0, 0.0, 0.0)
         },
+        Velocity::new(Vec2::new(300.0, 0.0)),
         Sprite::from_color(
             Color::WHITE,
             Vec2::new(10.0, 10.0)
         ),
-        Transform::from_xyz(0.0, 0.0 ,0.0)
+        Transform::from_xyz(0.0, 0.0 ,0.0),
+        Collider::new(Vec2::new(10.0, 10.0)),
+        Dynamic,
     ));
 }
 
@@ -115,14 +124,6 @@ fn move_paddle(
     }
 }
 
-fn move_ball(
-    mut ball_query: Query<(&mut Transform, &Ball)>,
-    time: Res<Time>,
-) {
-    for (mut transform, ball) in &mut ball_query {
-        transform.translation += ball.velocity * time.delta_secs();
-    }
-}
 
 fn bounce_off_screen(
     mut ball_query: Query<(&mut Transform, &mut Ball, &Sprite)>,
