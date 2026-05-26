@@ -8,4 +8,5 @@ pub struct CollisionMessage {
     pub b: Entity,
     pub normal: Vec2,
     pub time: f32, //should this be here?
+    pub impact_point: Vec2,
 }

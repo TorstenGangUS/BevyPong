@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{pbr::MaterialExtractEntitiesNeedingSpecializationSystems, prelude::*};
 
 use crate::physics::{components::{collider::Collider, velocity::Velocity}, events::collision_event::CollisionMessage};
 
@@ -13,6 +13,9 @@ pub struct Dynamic;
 #[derive(Component)]
 pub struct Static;
 
+
+#[derive(Component)]
+pub struct Controlled;
 
 
 
@@ -32,108 +35,202 @@ fn move_object(
 // but, for now I will have at most 30 different things total
 // this is fine.
 
+
 // fn swept_aabb_2d(
 //     a_pos: Vec2,
-//     a_velocity: Vec2,
-//     a_half_collider: Vec2,
+//     a_vel: Vec2,
+//     a_half: Vec2,
 //     b_pos: Vec2,
-//     b_half_collider: Vec2,
+//     b_half: Vec2,
 // ) -> Option<(f32, Vec2)> {
-//     let min_a = a_pos - a_half_collider;
-//     let max_a = a_pos + a_half_collider;
 
-//     let min_b = b_pos - b_half_collider;
-//     let max_b = b_pos + b_half_collider;
-
-//     let inv = Vec2::new(
-//         if a_velocity.x != 0.0 { 1.0 / a_velocity.x } else { f32::INFINITY },
-//         if a_velocity.y != 0.0 { 1.0 / a_velocity.y } else { f32::INFINITY },
+//     let inv_entry = Vec2::new(
+//         if a_vel.x > 0.0 { (b_pos.x - b_half.x) - (a_pos.x + a_half.x) }
+//         else { (b_pos.x + b_half.x) - (a_pos.x - a_half.x) },
+//         if a_vel.y > 0.0 { (b_pos.y - b_half.y) - (a_pos.y + a_half.y) }
+//         else { (b_pos.y + b_half.y) - (a_pos.y - a_half.y) },
 //     );
 
-//     let mut t1 = Vec2::ZERO;
-//     let mut t2 = Vec2::ZERO;
+//     let inv_exit = Vec2::new(
+//         if a_vel.x > 0.0 { (b_pos.x + b_half.x) - (a_pos.x - a_half.x) }
+//         else { (b_pos.x - b_half.x) - (a_pos.x + a_half.x) },
+//         if a_vel.y > 0.0 { (b_pos.y + b_half.y) - (a_pos.y - a_half.y) }
+//         else { (b_pos.y - b_half.y) - (a_pos.y + a_half.y) },
+//     );
 
-//     // X axis
-//     if a_velocity.x > 0.0 {
-//         t1.x = (min_b.x - max_a.x) * inv.x;
-//         t2.x = (max_b.x - min_a.x) * inv.x;
-//     } else {
-//         t1.x = (max_b.x - min_a.x) * inv.x;
-//         t2.x = (min_b.x - max_a.x) * inv.x;
-//     }
+//     let entry = Vec2::new(
+//         if a_vel.x == 0.0 { f32::NEG_INFINITY } else { inv_entry.x / a_vel.x },
+//         if a_vel.y == 0.0 { f32::NEG_INFINITY } else { inv_entry.y / a_vel.y },
+//     );
 
-//     // Y axis
-//     if a_velocity.y > 0.0 {
-//         t1.y = (min_b.y - max_a.y) * inv.y;
-//         t2.y = (max_b.y - min_a.y) * inv.y;
-//     } else {
-//         t1.y = (max_b.y - min_a.y) * inv.y;
-//         t2.y = (min_b.y - max_a.y) * inv.y;
-//     }
+//     let exit = Vec2::new(
+//         if a_vel.x == 0.0 { f32::INFINITY } else { inv_exit.x / a_vel.x },
+//         if a_vel.y == 0.0 { f32::INFINITY } else { inv_exit.y / a_vel.y },
+//     );
 
-//     let entry = t1.x.max(t1.y);
-//     let exit = t2.x.min(t2.y);
+//     let entry_time = entry.x.max(entry.y);
+//     let exit_time = exit.x.min(exit.y);
 
-//     if entry > exit || exit < 0.0 || entry > 1.0 {
+//     if entry_time > exit_time || exit_time < 0.0 || entry_time > 1.0 {
 //         return None;
 //     }
+//     if entry_time.is_infinite() {
+//         return None
+//     }
 
-//     // collision normal
-//     let normal = if t1.x > t1.y {
-//         if a_velocity.x < 0.0 { Vec2::X } else { Vec2::NEG_X }
+//     let normal = if entry.x > entry.y {
+//         if a_vel.x < 0.0 { Vec2::X } else { Vec2::NEG_X }
 //     } else {
-//         if a_velocity.y < 0.0 { Vec2::Y } else { Vec2::NEG_Y }
+//         if a_vel.y < 0.0 { Vec2::Y } else { Vec2::NEG_Y }
 //     };
 
-//     Some((entry, normal))
+//     Some((entry_time, normal))
 // }
+
+//TODO change this to take a collider nad position instead of a_half
+// and give collider a function that gives its lower left and upper right corner
+
 
 fn swept_aabb_2d(
     a_pos: Vec2,
-    a_vel: Vec2,
-    a_half: Vec2,
+    a_collider: &Collider,
+    relative_velocity: Vec2,
     b_pos: Vec2,
-    b_half: Vec2,
+    b_collider: &Collider,
 ) -> Option<(f32, Vec2)> {
+    let a_min = a_collider.min(a_pos);
+    let a_max = a_collider.max(a_pos);
+    let b_min = b_collider.min(b_pos);
+    let b_max = b_collider.max(b_pos);
 
-    let inv_entry = Vec2::new(
-        if a_vel.x > 0.0 { (b_pos.x - b_half.x) - (a_pos.x + a_half.x) }
-        else { (b_pos.x + b_half.x) - (a_pos.x - a_half.x) },
-        if a_vel.y > 0.0 { (b_pos.y - b_half.y) - (a_pos.y + a_half.y) }
-        else { (b_pos.y + b_half.y) - (a_pos.y - a_half.y) },
-    );
+    let mut inv_entry = Vec2::ZERO;
+    let mut inv_exit = Vec2::ZERO;
 
-    let inv_exit = Vec2::new(
-        if a_vel.x > 0.0 { (b_pos.x + b_half.x) - (a_pos.x - a_half.x) }
-        else { (b_pos.x - b_half.x) - (a_pos.x + a_half.x) },
-        if a_vel.y > 0.0 { (b_pos.y + b_half.y) - (a_pos.y - a_half.y) }
-        else { (b_pos.y - b_half.y) - (a_pos.y + a_half.y) },
-    );
+    //normally this broad phase would be done in an outer loop
+    // so as to not recompute the broad phase collider every time
+    // however, I am making pong. I might make that change later..
+    // but there are bigger fish to fry.
+    let bpc =  a_collider.broad_phase_check(relative_velocity);
+    if !bpc.intersects(a_pos, b_collider, b_pos) {
+        return None;
+    }
 
-    let entry = Vec2::new(
-        if a_vel.x == 0.0 { f32::NEG_INFINITY } else { inv_entry.x / a_vel.x },
-        if a_vel.y == 0.0 { f32::NEG_INFINITY } else { inv_entry.y / a_vel.y },
-    );
+    // find the distance between the objects on the near and far sides for both x and y 
+    if relative_velocity.x > 0.0
+    { 
+        inv_entry.x = b_min.x - a_max.x;  
+        inv_exit.x = b_max.x - a_min.x;
+    }
+    else 
+    { 
+        inv_entry.x = b_max.x - a_min.x;  
+        inv_exit.x = b_min.x - a_max.x;  
+    } 
 
-    let exit = Vec2::new(
-        if a_vel.x == 0.0 { f32::INFINITY } else { inv_exit.x / a_vel.x },
-        if a_vel.y == 0.0 { f32::INFINITY } else { inv_exit.y / a_vel.y },
-    );
+    if relative_velocity.y > 0.0
+    { 
+        inv_entry.y = b_min.y - a_max.y;  
+        inv_exit.y = b_max.y - a_min.y;  
+    }
+    else 
+    { 
+        inv_entry.y = b_max.y - a_min.y;  
+        inv_exit.y = b_min.y - a_max.y;  
+    }
+
+    let mut entry = Vec2::ZERO;
+    let mut exit = Vec2::ZERO;
+
+    if relative_velocity.x == 0.0
+    { 
+        entry.x = f32::NEG_INFINITY; 
+        exit.x = f32::INFINITY; 
+    } 
+    else 
+    { 
+        entry.x = inv_entry.x / relative_velocity.x;
+        exit.x = inv_exit.x / relative_velocity.x;
+    } 
+
+    if relative_velocity.y == 0.0 
+    { 
+        entry.y = f32::NEG_INFINITY; 
+        exit.y = f32::INFINITY; 
+    } 
+    else 
+    { 
+        entry.y = inv_entry.y / relative_velocity.y; 
+        exit.y = inv_exit.y / relative_velocity.y; 
+    }
 
     let entry_time = entry.x.max(entry.y);
     let exit_time = exit.x.min(exit.y);
 
-    if entry_time > exit_time || exit_time < 0.0 || entry_time > 1.0 {
-        return None;
+    //if entry_time > exit_time || (entry.x < 0.0 && entry.y < 0.0) || entry.x > 1.0 || entry.y > 1.0 
+    if entry_time > exit_time || exit_time < 0.0 || entry_time > 0.0 
+    { 
+        // println!("{entry_time} {exit_time}");
+        // normalx = 0.0; 
+        // normaly = 0.0; 
+        None
+    } else // if there was a collision 
+    { 
+        // calculate normal of collided surface
+        if entry.x > entry.y 
+        { 
+            if entry.x < 0.0
+            { 
+                Some((entry_time, Vec2::new(1.0, 0.0)))
+            } 
+            else 
+            {
+                Some((entry_time, Vec2::new(-1.0, 0.0)))
+            } 
+        } 
+        else 
+        { 
+            if entry.y < 0.0 
+            { 
+                Some((entry_time, Vec2::new(0.0, 1.0)))
+            } 
+            else 
+            { 
+                Some((entry_time, Vec2::new(0.0, -1.0)))
+            } 
+        } // return the time of collisionreturn entryTime; 
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::prelude::*;
+
+    #[test]
+    fn moving_right_hits_left_face() {
+        let result = swept_aabb_2d(
+            Vec2::new(0.0, 0.0),
+            &Collider::new(Vec2::new(5.0, 5.0)),
+            Vec2::new(10.0, 0.0),
+            Vec2::new(5.0, 0.0),
+            &Collider::new(Vec2::new(5.0, 5.0)),
+        );
+
+        assert!(result.is_some());
     }
 
-    let normal = if entry.x > entry.y {
-        if a_vel.x < 0.0 { Vec2::X } else { Vec2::NEG_X }
-    } else {
-        if a_vel.y < 0.0 { Vec2::Y } else { Vec2::NEG_Y }
-    };
+    #[test]
+    fn moving_right_misses_left_face() {
+        let result2 = swept_aabb_2d(
+            Vec2::new(0.0, 0.0),
+            &Collider::new(Vec2::new(5.0, 5.0)),
+            Vec2::new(10.0, 0.0),
+            Vec2::new(5.0, 10.0),
+            &Collider::new(Vec2::new(5.0, 5.0)),
+        );
 
-    Some((entry_time, normal))
+        assert!(result2.is_none());   
+    }
 }
 
 
@@ -147,20 +244,25 @@ fn detect_dynamic_collisions(
          (entity_b, transform_b, velocity_b, collider_b)
         ] in dynamic.iter_combinations() {
         let relative_velocity = (velocity_a.xy() - velocity_b.xy()) * delta;
-        println!("Comparing {entity_a} to {entity_b} vel {relative_velocity}");
+
+        let a_pos = transform_a.translation.xy();
         if let Some((t, normal)) = swept_aabb_2d(
-            transform_a.translation.xy(),
+            a_pos,
+            collider_a,
             relative_velocity,
-            collider_a.half_bounds(),
             transform_b.translation.xy(),
-            collider_b.half_bounds()
+            collider_b
         ) {
-            println!("collision detected {entity_a} to {entity_b} vel {relative_velocity}");
+            //TODO this doesn't work for dynamic...
+            // should I use relative velocity here? probably? IDK.
+            
+            let hit_pos = a_pos + (velocity_a.xy() *delta) * t;
             messages.write(CollisionMessage{
                 a:entity_a,
                 b:entity_b,
                 normal,
-                time:t
+                time:t,
+                impact_point: hit_pos
             });
         }
     }
@@ -176,31 +278,59 @@ fn detect_dynamic_to_static_collisions(
     for (entity_a, transform_a, velocity_a, collider_a)
         in &dynamic {
         for (entity_b, transform_b,  collider_b) in &static_colliders {
-            let relative_velocity = velocity_a.xy() * delta;
-            
+            let relative_velocity = -velocity_a.xy() * delta;
+            let a_pos = transform_a.translation.xy();
             if let Some((t, normal)) = swept_aabb_2d(
-                transform_a.translation.xy(),
+                a_pos,
+                collider_a,
                 relative_velocity,
-                collider_a.half_bounds(),
                 transform_b.translation.xy(),
-                collider_b.half_bounds()
+                collider_b
             ) {
+                
+                let hit_pos = a_pos + (velocity_a.xy() *delta) * t;
+                println!(
+                    "Hit{} - Start:{} {}, rel:{}, b:{} {}",
+                    hit_pos,
+                    a_pos,
+                    collider_a.half_bounds(),
+                    relative_velocity,
+                    transform_b.translation.xy(),
+                    collider_b.half_bounds()
+                );
                 messages.write(CollisionMessage{
                     a:entity_a,
                     b:entity_b,
                     normal,
-                    time:t
+                    time:t,
+                    impact_point: hit_pos
                 });
             }
         }
     }
 }
 
+
 fn handle_collisions(
-    mut messages: MessageReader<CollisionMessage>
+    mut messages: MessageReader<CollisionMessage>,
+    mut query: Query<(Option<&mut Velocity>, &mut Transform, &Collider)>,
 ) {
     for message in messages.read() {
-        debug!("{message:?}");
+        
+        let Ok((mut vel_a, mut transform, collider)) = query.get_mut(message.a) else {
+            continue;
+        };
+        let Some(mut vel_a) = vel_a else { continue };
+
+        let normal = message.normal;
+        let v = vel_a.xy();
+        let reflected = v - 2.0 * v.dot(normal) * normal;
+        let new_offset = message.impact_point + collider.half_bounds() * message.normal;
+        transform.translation.x = new_offset.x;
+        transform.translation.y = new_offset.y;
+        vel_a.set_xy(reflected);
+        println!("bounce: {:?} -> {:?} t:{} = {} {}", v, reflected, message.time, message.a, message.b);
+        println!("Hit Location {}", message.impact_point);
     }
 }
 

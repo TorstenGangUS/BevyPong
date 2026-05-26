@@ -12,4 +12,8 @@ impl Velocity {
     pub fn xy(&self) -> Vec2 {
         self.0
     }
+
+    pub fn set_xy(&mut self, vel: Vec2) {
+        self.0 = vel;
+    }
 }
