@@ -18,18 +18,6 @@ pub struct Static;
 pub struct Controlled;
 
 
-
-fn move_object(
-    mut query: Query<(&mut Transform, &Velocity)>,
-    time: Res<Time<Fixed>>,
-) {
-    let delta = time.delta_secs();
-    for (mut transform, velocity) in &mut query {
-        transform.translation += velocity.xy().extend(0.0) * delta; 
-    }
-}
-
-
 //I am doing very simple collisions, because this is pong
 // I might revist here and put in spatial hash based collisions
 // but, for now I will have at most 30 different things total
@@ -167,7 +155,7 @@ fn swept_aabb_2d(
     let exit_time = exit.x.min(exit.y);
 
     //if entry_time > exit_time || (entry.x < 0.0 && entry.y < 0.0) || entry.x > 1.0 || entry.y > 1.0 
-    if entry_time > exit_time || exit_time < 0.0 || entry_time > 0.0 
+    if entry_time > exit_time || exit_time < 0.0 || entry_time > 1.0 
     { 
         // println!("{entry_time} {exit_time}");
         // normalx = 0.0; 
@@ -278,7 +266,7 @@ fn detect_dynamic_to_static_collisions(
     for (entity_a, transform_a, velocity_a, collider_a)
         in &dynamic {
         for (entity_b, transform_b,  collider_b) in &static_colliders {
-            let relative_velocity = -velocity_a.xy() * delta;
+            let relative_velocity = velocity_a.xy() * delta;
             let a_pos = transform_a.translation.xy();
             if let Some((t, normal)) = swept_aabb_2d(
                 a_pos,
@@ -310,29 +298,113 @@ fn detect_dynamic_to_static_collisions(
     }
 }
 
+#[derive(Component)]
+struct Moved;
+
+// fn handle_collisions(
+//     mut messages: MessageReader<CollisionMessage>,
+//     mut query: Query<(Option<&mut Velocity>, &mut Transform, &Collider)>,
+// ) {
+//     for message in messages.read() {
+        
+//         let Ok((mut vel_a, mut transform, collider)) = query.get_mut(message.a) else {
+//             continue;
+//         };
+//         let Some(mut vel_a) = vel_a else { continue };
+
+//         //position the block...
+//         // float normalx, normaly; 
+//         // float collisiontime = SweptAABB(box, block, out normalx, out normaly); 
+//         // box.x += box.vx * collisiontime; 
+//         // box.y += box.vy * collisiontime; 
+//         // float remainingtime = 1.0f - collisiontime;
+
+//         let normal = message.normal;
+//         let v = vel_a.xy();
+//         let reflected = v - 2.0 * v.dot(normal) * normal;
+//         let new_offset = message.impact_point;
+//         transform.translation.x = new_offset.x;
+//         transform.translation.y = new_offset.y;
+//         vel_a.set_xy(reflected);
+//         //reflect!
+//         // deflectbox.vx *= remainingtime; 
+//         // box.vy *= remainingtime; 
+//         // if (abs(normalx) > 0.0001f) box.vx = -box.vx; 
+//         // if (abs(normaly) > 0.0001f) box.vy = -box.vy;
+//         //AND prevent from moving more this frame...
+        
+//     }
+// }
 
 fn handle_collisions(
+    mut commands: Commands,
     mut messages: MessageReader<CollisionMessage>,
-    mut query: Query<(Option<&mut Velocity>, &mut Transform, &Collider)>,
+    mut query: Query<(Entity,
+        &mut Velocity,
+        &mut Transform,
+    )>,
+    time: Res<Time<Fixed>>,
 ) {
+    let delta = time.delta_secs();
+
     for message in messages.read() {
-        
-        let Ok((mut vel_a, mut transform, collider)) = query.get_mut(message.a) else {
+
+        let Ok((entity, mut vel_a, mut transform)) =
+            query.get_mut(message.a)
+        else {
             continue;
         };
-        let Some(mut vel_a) = vel_a else { continue };
 
+        //
+        // Move to exact impact position
+        //
+        transform.translation.x = message.impact_point.x;
+        transform.translation.y = message.impact_point.y;
+
+        //
+        // Reflect velocity
+        //
         let normal = message.normal;
-        let v = vel_a.xy();
-        let reflected = v - 2.0 * v.dot(normal) * normal;
-        let new_offset = message.impact_point + collider.half_bounds() * message.normal;
-        transform.translation.x = new_offset.x;
-        transform.translation.y = new_offset.y;
+        let velocity = vel_a.xy();
+
+        let reflected =
+            velocity - 2.0 * velocity.dot(normal) * normal;
+
         vel_a.set_xy(reflected);
-        println!("bounce: {:?} -> {:?} t:{} = {} {}", v, reflected, message.time, message.a, message.b);
-        println!("Hit Location {}", message.impact_point);
+
+        //
+        // Move remaining frame time using reflected velocity
+        //
+        let remaining_time = 1.0 - message.time;
+
+        transform.translation +=
+            (reflected * delta * remaining_time)
+                .extend(0.0);
+        commands.entity(entity).insert(Moved);
     }
 }
+
+
+
+fn move_object(
+    mut query: Query<(&mut Transform, &Velocity), Without<Moved>>,
+    time: Res<Time<Fixed>>,
+) {
+    let delta = time.delta_secs();
+    for (mut transform, velocity) in &mut query {
+        transform.translation += velocity.xy().extend(0.0) * delta; 
+    }
+}
+
+fn reset_move(mut commands: Commands,
+    query: Query<Entity, With<Moved>>,
+) {
+    for entity in query {
+        //TODO batch this
+        commands.entity(entity).remove::<Moved>();
+    }
+}
+
 
 
 pub struct PhysicsPlugin;
@@ -345,11 +417,12 @@ impl Plugin for PhysicsPlugin {
                 (
                     detect_dynamic_to_static_collisions,
                     detect_dynamic_collisions,
-                ).after(
-                    handle_collisions    
+                ).before(
+                    handle_collisions
                 ),
                 handle_collisions,
-                move_object.after(handle_collisions)
+                move_object.after(handle_collisions),
+                reset_move.after(move_object)
             ))
         ;
     }

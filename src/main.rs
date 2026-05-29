@@ -76,7 +76,7 @@ fn setup(mut commands: Commands) {
 
     commands.spawn((
         Ball,
-        Velocity::new(Vec2::new(300.0, 0.0)),
+        Velocity::new(Vec2::new(300.0, 150.0)),
         Sprite::from_color(
             Color::WHITE,
             Vec2::new(10.0, 10.0)
@@ -84,6 +84,26 @@ fn setup(mut commands: Commands) {
         Transform::from_xyz(0.0, 0.0 ,0.0),
         Collider::new(Vec2::new(10.0, 10.0)),
         Dynamic,
+    ));
+
+    //spawn walls
+    commands.spawn((
+        Sprite::from_color(
+            Color::WHITE,
+            Vec2::new(800.0, 10.0)
+        ),
+        Transform::from_xyz(0.0, 250.0 ,0.0),
+        Collider::new(Vec2::new(800.0, 10.0)),
+        Static,
+    ));
+    commands.spawn((
+        Sprite::from_color(
+            Color::WHITE,
+            Vec2::new(800.0, 10.0)
+        ),
+        Transform::from_xyz(0.0, -250.0 ,0.0),
+        Collider::new(Vec2::new(800.0, 10.0)),
+        Static,
     ));
 }
 

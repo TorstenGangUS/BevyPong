@@ -77,13 +77,28 @@ impl Collider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::prelude::*;
     
     #[test]
-    fn intersection() {
+    fn intersects() {
         let a = Collider::new(Vec2::new(10.0, 10.0));
         let b = Collider::new(Vec2::new(10.0, 10.0));
 
         assert!(a.intersects(Vec2::new(0.0, 0.0), &b, Vec2::new(2.0, 0.0)));
+    }
+
+    #[test]
+    fn touches_on_edge() {
+        let a = Collider::new(Vec2::new(10.0, 10.0));
+        let b = Collider::new(Vec2::new(10.0, 10.0));
+
+        assert!(a.intersects(Vec2::new(0.0, 0.0), &b, Vec2::new(10.0, 0.0)));
+    }
+
+    #[test]
+    fn just_past_edge() {
+        let a = Collider::new(Vec2::new(10.0, 10.0));
+        let b = Collider::new(Vec2::new(10.0, 10.0));
+
+        assert!(!a.intersects(Vec2::new(0.0, 0.0), &b, Vec2::new(10.01, 0.0)));
     }
 }
