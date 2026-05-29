@@ -45,24 +45,22 @@ fn swept_aabb_2d(
     }
 
     // find the distance between the objects on the near and far sides for both x and y 
-    if relative_velocity.x > 0.0
+    if relative_velocity.x > 0.0 
     { 
         inv_entry.x = b_min.x - a_max.x;  
         inv_exit.x = b_max.x - a_min.x;
     }
-    else 
-    { 
+    else
+    {
         inv_entry.x = b_max.x - a_min.x;  
         inv_exit.x = b_min.x - a_max.x;  
     } 
 
-    if relative_velocity.y > 0.0
-    { 
+    if relative_velocity.y > 0.0 {
         inv_entry.y = b_min.y - a_max.y;  
         inv_exit.y = b_max.y - a_min.y;  
     }
-    else 
-    { 
+    else {
         inv_entry.y = b_max.y - a_min.y;  
         inv_exit.y = b_min.y - a_max.y;  
     }
@@ -70,24 +68,18 @@ fn swept_aabb_2d(
     let mut entry = Vec2::ZERO;
     let mut exit = Vec2::ZERO;
 
-    if relative_velocity.x == 0.0
-    { 
+    if relative_velocity.x == 0.0 { 
         entry.x = f32::NEG_INFINITY; 
         exit.x = f32::INFINITY; 
-    } 
-    else 
-    { 
+    } else { 
         entry.x = inv_entry.x / relative_velocity.x;
         exit.x = inv_exit.x / relative_velocity.x;
     } 
 
-    if relative_velocity.y == 0.0 
-    { 
+    if relative_velocity.y == 0.0 { 
         entry.y = f32::NEG_INFINITY; 
         exit.y = f32::INFINITY; 
-    } 
-    else 
-    { 
+    } else { 
         entry.y = inv_entry.y / relative_velocity.y; 
         exit.y = inv_exit.y / relative_velocity.y; 
     }
@@ -95,12 +87,8 @@ fn swept_aabb_2d(
     let entry_time = entry.x.max(entry.y);
     let exit_time = exit.x.min(exit.y);
 
-    //if entry_time > exit_time || (entry.x < 0.0 && entry.y < 0.0) || entry.x > 1.0 || entry.y > 1.0 
     if entry_time > exit_time || exit_time < 0.0 || entry_time > 1.0 
     { 
-        // println!("{entry_time} {exit_time}");
-        // normalx = 0.0; 
-        // normaly = 0.0; 
         None
     } else // if there was a collision 
     { 
