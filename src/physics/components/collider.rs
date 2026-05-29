@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 
-#[derive(Component)]
+#[derive(Component, Clone, Copy)]
 pub struct Collider{
     x: f32,
     y: f32,

@@ -1,6 +1,6 @@
 use bevy::{pbr::MaterialExtractEntitiesNeedingSpecializationSystems, prelude::*};
 
-use crate::physics::{components::{collider::Collider, velocity::Velocity}, events::collision_event::CollisionMessage};
+use crate::physics::{components::{collider::Collider, velocity::Velocity}, events::collision_event::{CollisionEvent, CollisionMessage}};
 
 pub mod components;
 pub mod events;
@@ -14,69 +14,10 @@ pub struct Dynamic;
 pub struct Static;
 
 
-#[derive(Component)]
-pub struct Controlled;
-
-
 //I am doing very simple collisions, because this is pong
 // I might revist here and put in spatial hash based collisions
 // but, for now I will have at most 30 different things total
 // this is fine.
-
-
-// fn swept_aabb_2d(
-//     a_pos: Vec2,
-//     a_vel: Vec2,
-//     a_half: Vec2,
-//     b_pos: Vec2,
-//     b_half: Vec2,
-// ) -> Option<(f32, Vec2)> {
-
-//     let inv_entry = Vec2::new(
-//         if a_vel.x > 0.0 { (b_pos.x - b_half.x) - (a_pos.x + a_half.x) }
-//         else { (b_pos.x + b_half.x) - (a_pos.x - a_half.x) },
-//         if a_vel.y > 0.0 { (b_pos.y - b_half.y) - (a_pos.y + a_half.y) }
-//         else { (b_pos.y + b_half.y) - (a_pos.y - a_half.y) },
-//     );
-
-//     let inv_exit = Vec2::new(
-//         if a_vel.x > 0.0 { (b_pos.x + b_half.x) - (a_pos.x - a_half.x) }
-//         else { (b_pos.x - b_half.x) - (a_pos.x + a_half.x) },
-//         if a_vel.y > 0.0 { (b_pos.y + b_half.y) - (a_pos.y - a_half.y) }
-//         else { (b_pos.y - b_half.y) - (a_pos.y + a_half.y) },
-//     );
-
-//     let entry = Vec2::new(
-//         if a_vel.x == 0.0 { f32::NEG_INFINITY } else { inv_entry.x / a_vel.x },
-//         if a_vel.y == 0.0 { f32::NEG_INFINITY } else { inv_entry.y / a_vel.y },
-//     );
-
-//     let exit = Vec2::new(
-//         if a_vel.x == 0.0 { f32::INFINITY } else { inv_exit.x / a_vel.x },
-//         if a_vel.y == 0.0 { f32::INFINITY } else { inv_exit.y / a_vel.y },
-//     );
-
-//     let entry_time = entry.x.max(entry.y);
-//     let exit_time = exit.x.min(exit.y);
-
-//     if entry_time > exit_time || exit_time < 0.0 || entry_time > 1.0 {
-//         return None;
-//     }
-//     if entry_time.is_infinite() {
-//         return None
-//     }
-
-//     let normal = if entry.x > entry.y {
-//         if a_vel.x < 0.0 { Vec2::X } else { Vec2::NEG_X }
-//     } else {
-//         if a_vel.y < 0.0 { Vec2::Y } else { Vec2::NEG_Y }
-//     };
-
-//     Some((entry_time, normal))
-// }
-
-//TODO change this to take a collider nad position instead of a_half
-// and give collider a function that gives its lower left and upper right corner
 
 
 fn swept_aabb_2d(
@@ -166,7 +107,7 @@ fn swept_aabb_2d(
         // calculate normal of collided surface
         if entry.x > entry.y 
         { 
-            if entry.x < 0.0
+            if relative_velocity.x < 0.0
             { 
                 Some((entry_time, Vec2::new(1.0, 0.0)))
             } 
@@ -177,8 +118,8 @@ fn swept_aabb_2d(
         } 
         else 
         { 
-            if entry.y < 0.0 
-            { 
+            if relative_velocity.y < 0.0 
+            {
                 Some((entry_time, Vec2::new(0.0, 1.0)))
             } 
             else 
@@ -192,7 +133,6 @@ fn swept_aabb_2d(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::prelude::*;
 
     #[test]
     fn moving_right_hits_left_face() {
@@ -222,189 +162,142 @@ mod tests {
 }
 
 
-fn detect_dynamic_collisions(
-    mut messages: MessageWriter<CollisionMessage>,
-    dynamic: Query<(Entity, &Transform, &Velocity, &Collider), With<Dynamic>>,
-    f_time: Res<Time<Fixed>>,
-) {
-    let delta = f_time.delta_secs();
-    for [(entity_a, transform_a, velocity_a, collider_a),
-         (entity_b, transform_b, velocity_b, collider_b)
-        ] in dynamic.iter_combinations() {
-        let relative_velocity = (velocity_a.xy() - velocity_b.xy()) * delta;
 
-        let a_pos = transform_a.translation.xy();
-        if let Some((t, normal)) = swept_aabb_2d(
-            a_pos,
-            collider_a,
-            relative_velocity,
-            transform_b.translation.xy(),
-            collider_b
-        ) {
-            //TODO this doesn't work for dynamic...
-            // should I use relative velocity here? probably? IDK.
-            
-            let hit_pos = a_pos + (velocity_a.xy() *delta) * t;
-            messages.write(CollisionMessage{
-                a:entity_a,
-                b:entity_b,
-                normal,
-                time:t,
-                impact_point: hit_pos
-            });
-        }
-    }
-}
-
-fn detect_dynamic_to_static_collisions(
-    mut messages: MessageWriter<CollisionMessage>,
-    dynamic: Query<(Entity, &Transform, &Velocity, &Collider), With<Dynamic>>,
-    static_colliders: Query<(Entity, &Transform, &Collider), With<Static>>,
-    f_time: Res<Time<Fixed>>,
-) {
-    let delta = f_time.delta_secs();
-    for (entity_a, transform_a, velocity_a, collider_a)
-        in &dynamic {
-        for (entity_b, transform_b,  collider_b) in &static_colliders {
-            let relative_velocity = velocity_a.xy() * delta;
-            let a_pos = transform_a.translation.xy();
-            if let Some((t, normal)) = swept_aabb_2d(
-                a_pos,
-                collider_a,
-                relative_velocity,
-                transform_b.translation.xy(),
-                collider_b
-            ) {
-                
-                let hit_pos = a_pos + (velocity_a.xy() *delta) * t;
-                println!(
-                    "Hit{} - Start:{} {}, rel:{}, b:{} {}",
-                    hit_pos,
-                    a_pos,
-                    collider_a.half_bounds(),
-                    relative_velocity,
-                    transform_b.translation.xy(),
-                    collider_b.half_bounds()
-                );
-                messages.write(CollisionMessage{
-                    a:entity_a,
-                    b:entity_b,
-                    normal,
-                    time:t,
-                    impact_point: hit_pos
-                });
-            }
-        }
-    }
-}
-
-#[derive(Component)]
-struct Moved;
-
-// fn handle_collisions(
-//     mut messages: MessageReader<CollisionMessage>,
-//     mut query: Query<(Option<&mut Velocity>, &mut Transform, &Collider)>,
-// ) {
-//     for message in messages.read() {
-        
-//         let Ok((mut vel_a, mut transform, collider)) = query.get_mut(message.a) else {
-//             continue;
-//         };
-//         let Some(mut vel_a) = vel_a else { continue };
-
-//         //position the block...
-//         // float normalx, normaly; 
-//         // float collisiontime = SweptAABB(box, block, out normalx, out normaly); 
-//         // box.x += box.vx * collisiontime; 
-//         // box.y += box.vy * collisiontime; 
-//         // float remainingtime = 1.0f - collisiontime;
-
-//         let normal = message.normal;
-//         let v = vel_a.xy();
-//         let reflected = v - 2.0 * v.dot(normal) * normal;
-//         let new_offset = message.impact_point;
-//         transform.translation.x = new_offset.x;
-//         transform.translation.y = new_offset.y;
-//         vel_a.set_xy(reflected);
-//         //reflect!
-//         // deflectbox.vx *= remainingtime; 
-//         // box.vy *= remainingtime; 
-//         // if (abs(normalx) > 0.0001f) box.vx = -box.vx; 
-//         // if (abs(normaly) > 0.0001f) box.vy = -box.vy;
-//         //AND prevent from moving more this frame...
-        
-//     }
-// }
-
-fn handle_collisions(
+fn physics_step(
     mut commands: Commands,
-    mut messages: MessageReader<CollisionMessage>,
-    mut query: Query<(Entity,
-        &mut Velocity,
-        &mut Transform,
-    )>,
+    mut query: Query<(Entity, &mut Transform, &mut Velocity, &Collider), (With<Dynamic>, Without<Static>)>,
+    static_colliders: Query<(Entity, &Transform, &Collider), (With<Static>, Without<Dynamic>)>,
+    
     time: Res<Time<Fixed>>,
 ) {
-    let delta = time.delta_secs();
+    let dt = time.delta_secs();
+    let snapshot: Vec<(Entity, Vec2, Vec2, Collider)> = query
+        .iter()
+        .map(|(e, t, v, c)| (
+            e,
+            t.translation.xy(),
+            v.xy(),
+            *c,
+        ))
+        .collect();
 
-    for message in messages.read() {
 
-        let Ok((entity, mut vel_a, mut transform)) =
-            query.get_mut(message.a)
-        else {
-            continue;
-        };
+    for (entity, mut transform, mut velocity, collider) in &mut query {
 
-        //
-        // Move to exact impact position
-        //
-        transform.translation.x = message.impact_point.x;
-        transform.translation.y = message.impact_point.y;
+        let mut remaining_time = 1.0;
+        let mut iterations = 0;
 
-        //
-        // Reflect velocity
-        //
-        let normal = message.normal;
-        let velocity = vel_a.xy();
+        while remaining_time > 0.0 && iterations < 4 {
 
-        let reflected =
-            velocity - 2.0 * velocity.dot(normal) * normal;
+            let mut earliest_hit: Option<(f32, Vec2, Vec2)> = None;
+            let mut hit_entity: Option<Entity> = None;
 
-        vel_a.set_xy(reflected);
+            let start_pos = transform.translation.xy();
+            let vel = velocity.xy() * dt * remaining_time;
+            let mut other_vel_at_impact = Vec2::ZERO;
+            // look for static collison
+            for (other_entity, other_transform, other_collider) in &static_colliders {
 
-        //
-        // Move remaining frame time using reflected velocity
-        //
-        let remaining_time = 1.0 - message.time;
+                if let Some((t, normal)) = swept_aabb_2d(
+                    start_pos,
+                    collider,
+                    vel,
+                    other_transform.translation.xy(),
+                    other_collider,
+                ) {
+                    if earliest_hit.map_or(true, |(best_t, _, _)| t < best_t) {
+                        earliest_hit = Some((t, normal, other_transform.translation.xy()));
+                        hit_entity = Some(other_entity);
+                        other_vel_at_impact = Vec2::ZERO;
+                    }
+                }
+            }
 
-        transform.translation +=
-            (reflected * delta * remaining_time)
-                .extend(0.0);
-        commands.entity(entity).insert(Moved);
+            // look for dynamic collisions...
+            // There is a bug in how this work.. as 
+            // we should freeze the world figure out collisions
+            // take a step and continue.. but, I don't care about that level of accuracy
+            // I am networking this.. so this will kick me later I suppose.
+            for (other_entity, other_pos, other_vel, other_collider) in &snapshot {
+
+                if *other_entity == entity {
+                    continue;
+                }
+
+                let relative_velocity =
+                    (velocity.xy() - *other_vel) * dt * remaining_time;
+
+                if let Some((t, normal)) = swept_aabb_2d(
+                    start_pos,
+                    collider,
+                    relative_velocity,
+                    *other_pos,
+                    other_collider,
+                ) {
+                    if earliest_hit.map_or(true, |(best_t, _, _)| t < best_t) {
+                        earliest_hit = Some((t, normal, *other_pos));
+                        hit_entity = Some(*other_entity);
+                        other_vel_at_impact = *other_vel;
+                    }
+                }
+            }
+
+            // no collision, just move!
+            let Some((t, normal, _hit_pos)) = earliest_hit else {
+                transform.translation += vel.extend(0.0);
+                break;
+            };
+
+            transform.translation += (vel * t).extend(0.0);
+
+
+            //this isn't quite right as this is the center of the object
+            // at time of impact. not the actual point where the
+            // impact occurs.
+            let impact_point = transform.translation.xy();
+            
+            // tiny push to prevent re-collision jitter
+            transform.translation += (normal * 0.001).extend(0.0);
+
+
+            let velocity_at_impact = velocity.xy();
+            let target = hit_entity.unwrap();
+            //TRIGGER collision events
+            commands.entity(entity).trigger( |entity|
+                CollisionEvent{
+                    entity:entity,
+                    target:target,
+                    impact_point: impact_point,
+                    my_velocity: velocity_at_impact,
+                    target_velocity: other_vel_at_impact
+                }
+            );
+
+            commands.entity(target).trigger( |target|
+                CollisionEvent{
+                    entity:target,
+                    target:entity,
+                    impact_point: impact_point,
+                    my_velocity: other_vel_at_impact,
+                    target_velocity: velocity_at_impact
+                }
+            );
+            
+
+            //handle reflection
+
+            let v = velocity.xy();
+            let reflected =
+                v - 2.0 * v.dot(normal) * normal;
+
+            velocity.set_xy(reflected);
+
+            remaining_time *= 1.0 - t;
+
+            iterations += 1;
+        }
     }
 }
-
-
-
-fn move_object(
-    mut query: Query<(&mut Transform, &Velocity), Without<Moved>>,
-    time: Res<Time<Fixed>>,
-) {
-    let delta = time.delta_secs();
-    for (mut transform, velocity) in &mut query {
-        transform.translation += velocity.xy().extend(0.0) * delta; 
-    }
-}
-
-fn reset_move(mut commands: Commands,
-    query: Query<Entity, With<Moved>>,
-) {
-    for entity in query {
-        //TODO batch this
-        commands.entity(entity).remove::<Moved>();
-    }
-}
-
 
 
 pub struct PhysicsPlugin;
@@ -413,17 +306,18 @@ impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
         app
             .add_message::<CollisionMessage>()
-            .add_systems(FixedUpdate, (
-                (
-                    detect_dynamic_to_static_collisions,
-                    detect_dynamic_collisions,
-                ).before(
-                    handle_collisions
-                ),
-                handle_collisions,
-                move_object.after(handle_collisions),
-                reset_move.after(move_object)
-            ))
+            // .add_systems(FixedUpdate, (
+            //     (
+            //         detect_dynamic_to_static_collisions,
+            //         detect_dynamic_collisions,
+            //     ).before(
+            //         handle_collisions
+            //     ),
+            //     handle_collisions,
+            //     move_object.after(handle_collisions),
+            //     reset_move.after(move_object)
+            // ))
+            .add_systems(FixedUpdate, physics_step)
         ;
     }
 }
