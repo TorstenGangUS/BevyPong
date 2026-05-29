@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 
-
 //this should be only visible in physics
 #[derive(Message, Debug)]
 pub struct CollisionMessage {
@@ -17,5 +16,5 @@ pub struct CollisionEvent {
     pub target: Entity,
     pub impact_point: Vec2,
     pub my_velocity: Vec2,
-    pub target_velocity: Vec2
+    pub target_velocity: Vec2,
 }
